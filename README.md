@@ -1,2 +1,3 @@
-# whoi_2021
-2021 Guest Studentship in the Cafe Thorium and BOOMLabs at WHOI.
+# WHOI2021
+### *Guest studentship in Cafe Thorium and BOOMLabs*
+This is the main repository for all work on Thorium and Particulate Organic Carbon modeling. 
