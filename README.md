@@ -2,7 +2,7 @@
 This is the main repository for all work on Thorium and Particulate Organic Carbon modeling. 
 
 ## Participants
-- Student: Perrin Davidson (Univeristy of Chicago)
+- Student: Perrin Davidson (University of Chicago)
 - Advisors: Jennifer Kenyon, David Nicholson, and Ken Buesseler (WHOI)
 
 ## Documents
