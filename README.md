@@ -1,5 +1,5 @@
 # WHOI2021
-This is the main repository for all work on Thorium and Particulate Organic Carbon modeling. 
+This is the main repository for all work on Thorium and Particulate Organic Carbon modeling done for the Cafe Thorium and BOOMLAB laboratories at the Woods Hole Oceanographic Institution in 2021.
 
 ## Participants
 - Student: Perrin Davidson (University of Chicago)
