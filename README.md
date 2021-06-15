@@ -16,3 +16,22 @@ This is the main repository for all work on Thorium and Particulate Organic Carb
 
 ### References
 - [Zotero Group](https://www.zotero.org/groups/4304376/global_th234_modeling_whoi2021)
+
+## Structure
+The structure for the workflow, of which this repo contains the source code, is as follows:
+```
+globalThPOCModels
+│   README.md 
+│
+└─── code (this repo)
+│   │
+│   └─── data_prep
+│   
+└─── inputs (google drive dir above)
+│   │
+│   └─── woa18
+│   
+└─── outputs (google drive dir above)
+    │
+    └─── writeUps
+```
