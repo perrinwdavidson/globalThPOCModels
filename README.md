@@ -21,9 +21,9 @@ This is the main repository for all work on Thorium and Particulate Organic Carb
 The structure for the workflow, of which this repo contains the source code, is as follows:
 ```
 globalThPOCModels
-│   README.md 
 │
 └─── code (this repo)
+│   + README.md 
 │   │
 │   └─── data_prep
 │   
