@@ -22,10 +22,12 @@ The structure for the workflow, of which this repo contains the source code, is 
 ```
 globalThPOCModels
 │
-└─── code (this repo)
-│   + README.md 
+└─── code
 │   │
-│   └─── data_prep
+│   └─── whoi2021 (this repo)
+│       + README.md 
+│       │
+│       └─── data_prep
 │   
 └─── inputs (google drive dir above)
 │   │
