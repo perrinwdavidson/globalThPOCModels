@@ -24,7 +24,7 @@ globalThPOCModels
 │
 └─── code
 │   │
-│   └─── whoi2021 (this repo)
+│   └─── globalThPOCModels (this repo)
 │       + README.md 
 │       │
 │       └─── data_prep
