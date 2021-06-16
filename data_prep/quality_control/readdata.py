@@ -1,7 +1,7 @@
 # -------------------------------------
 #    Thorium Dynamics in the Ocean
 # -------------------------------------
-#           Quality Control
+#              Read Data
 # -------------------------------------
 #         perrin w. davidson
 #          pwd@uchicago.edu
@@ -11,20 +11,19 @@ import numpy as np
 import pandas as pd
 
 # Configure environment:
-# Do you want to print?
-printing = 1
-
 # What are your base paths?
 inputs_basepath = '/Users/perrindavidson/Research/whoi/current/globalThPOCModels/inputs/'
 outputs_basepath = '/Users/perrindavidson/Research/whoi/current/globalThPOCModels/outputs/'
+
+# Do you want to remove out-of-bounds data? (set to yes)
+boundsCoords = 'no'
 
 # Read in CGODB data:
 filename = inputs_basepath + 'radionuclide/cgodb/cgodb_220720.xlsx'
 sheet = 'metadata&data'
 cgodb_rawData = pd.read_excel(
                     filename,
-                    sheet,
-                    na_values='nan'
+                    sheet
 )
 
 # Read in GP15 data:
@@ -42,6 +41,14 @@ exports_rawData = pd.read_excel(
                       filename,
                       sheet,
 )
+
+# Read in column names:
+filename = inputs_basepath + 'radionuclide/columnnames.csv'
+columnnames = pd.read_csv(
+                      filename,
+                      sep=',',
+)
+columnlist = columnnames.columns
 
 # Give serial numbers to each dataset:
 # CGODB:
@@ -112,50 +119,67 @@ ocean.dropna(subset=["lat_decimal_degrees"], inplace=True)
 ocean.dropna(subset=["lon_decimal_degrees"], inplace=True)
 ocean.dropna(subset=["depth(m)"], inplace=True)
 
+# Give new names:
+ocean.columns = columnlist
+
 # Subset data:
 # Full ocean:
 ocean_full = ocean
 
 # Info ocean:
 ocean_id = ocean.iloc[:, :43]
-ocean_id[['dataset', 'serialNumber']] = ocean[['dataset', 'serialNumber']]
+ocean_id[['Dataset', 'Serial_Number']] = ocean[['Dataset', 'Serial_Number']]
 
 # Data ocean:
-mask = ['serialNumber',
-        'lon_decimal_degrees',
-        'lat_decimal_degrees',
-        'total_234Th(dpm/L)',
-        'uncert_total234Th',
-        'POC/Th_large(umol/dpm)',
-        'uncert_POC/Th_large']
+mask = ['Dataset',
+        'Serial_Number',
+        'Longitude',
+        'Latitude',
+        'Total_234Th(dpm/L)',
+        'Uncert_Total_234Th(dpm/L)',
+        'POC:234Th_Ratio_Large(umol/dpm)',
+        'Uncert_POC:234Th_Ratio_Large(umol/dpm)']
 ocean_data = ocean[mask]
 ocean_data = ocean_data.applymap(lambda x: x.strip() if isinstance(x, str) else x)
 ocean_data = ocean_data.apply(pd.to_numeric)
 
 # Remove out-of-bounds coordinates (commented as there are no such data points):
-# ocean_data.drop(ocean_data[ocean_data['lat_decimal_degrees'] < -90].index, inplace=True)
-# ocean_data.drop(ocean_data[ocean_data['lat_decimal_degrees'] > 90].index, inplace=True)
-# ocean_data.drop(ocean_data[ocean_data['lon_decimal_degrees'] < -180].index, inplace=True)
-# ocean_data.drop(ocean_data[ocean_data['lon_decimal_degrees'] > 360].index, inplace=True)
+if boundsCoords == 'yes':
+    ocean_data.drop(ocean_data[ocean_data['lat_decimal_degrees'] < -90].index, inplace=True)
+    ocean_data.drop(ocean_data[ocean_data['lat_decimal_degrees'] > 90].index, inplace=True)
+    ocean_data.drop(ocean_data[ocean_data['lon_decimal_degrees'] < -180].index, inplace=True)
+    ocean_data.drop(ocean_data[ocean_data['lon_decimal_degrees'] > 360].index, inplace=True)
 
 # Make all longitude [0, 360]:
-lon_index = ocean_data['lon_decimal_degrees'].index[ocean_data['lon_decimal_degrees'] < 0]
-ocean_data.loc[lon_index, 'lon_decimal_degrees'] = ocean_data.loc[lon_index, 'lon_decimal_degrees'] + 360
+lon_index = ocean_data['Longitude'].index[ocean_data['Longitude'] < 0]
+ocean_data.loc[lon_index, 'Longitude'] = ocean_data.loc[lon_index, 'Longitude'] + 360
 
 # Write data:
 # Full ocean:
 filename = outputs_basepath + 'readdata/ocean_full.xlsx'
 sheetname = 'CGODB'
-ocean_full.to_excel(filename, sheetname)
+ocean_full.to_excel(
+    filename,
+    sheetname,
+    index=False
+)
 
 # Info ocean:
 filename = outputs_basepath + 'readdata/ocean_info.xlsx'
 sheetname = 'CGODB'
-ocean_id.to_excel(filename, sheetname)
+ocean_id.to_excel(
+    filename,
+    sheetname,
+    index=False
+)
 
 # Data ocean:
 filename = outputs_basepath + 'readdata/ocean_data.xlsx'
 sheetname = 'CGODB'
-ocean_data.to_excel(filename, sheetname)
+ocean_data.to_excel(
+    filename,
+    sheetname,
+    index=False
+)
 
 # End routine.
