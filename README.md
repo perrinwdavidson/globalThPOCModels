@@ -1,4 +1,4 @@
-# WHOI2021
+# globalThPOCModels
 This is the main repository for all work on Thorium and Particulate Organic Carbon modeling done for the Cafe Thorium and BOOMLAB laboratories at the Woods Hole Oceanographic Institution (WHOI) in 2021.
 
 ## Participants
@@ -15,7 +15,7 @@ This is the main repository for all work on Thorium and Particulate Organic Carb
 - [Outputs Drive Folder](https://drive.google.com/drive/folders/1r4blItqvj1zogAWyToyNViNegSgsfiiB?usp=sharing)
 
 ### References
-- [Zotero Group](https://www.zotero.org/groups/4304376/global_th234_modeling_whoi2021)
+- [Zotero Group](https://www.zotero.org/groups/globalThPOCModels)
 
 ## Structure
 The structure for the workflow, of which this repo contains the source code, is as follows:
