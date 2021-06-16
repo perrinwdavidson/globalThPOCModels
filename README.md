@@ -11,8 +11,8 @@ This is the main repository for all work on Thorium and Particulate Organic Carb
 - [Project Proposal](https://www.overleaf.com/read/pgkxfrdfcxjk)
 
 ### Google Drive
-- [Inputs Drive Folder](https://drive.google.com/drive/folders/1N5xnfNJYPWSkOqxx-CeFDVdI_gvR85Qc?usp=sharing)
-- [Outputs Drive Folder](https://drive.google.com/drive/folders/1r4blItqvj1zogAWyToyNViNegSgsfiiB?usp=sharing)
+- [Inputs Drive Folder](https://drive.google.com/drive/folders/1FbfDFRtGEQRfYFgPkvg9Tx28SybWRtHQ?usp=sharing)
+- [Outputs Drive Folder](https://drive.google.com/drive/folders/1PcStLlR-VXU2s-7o-9YD911z435JSFDf?usp=sharing)
 
 ### References
 - [Zotero Group](https://www.zotero.org/groups/globalThPOCModels)
