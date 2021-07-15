@@ -1,0 +1,7 @@
+# Ignore Mac system files
+.DS_store
+
+# Ignore build directories
+build/
+_static/
+_templates/
