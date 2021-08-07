@@ -6,16 +6,20 @@
 #         perrin w. davidson
 #          pwd@uchicago.edu
 # -------------------------------------
-# Import ------------------------------
+# Import libraries --------------------
 import numpy as np
 import wget
-from netCDF4 import Dataset
-from pykrige import OrdinaryKriging
-import pykrige.kriging_tools as kt
+import netCDF4 as nc
 import matplotlib.pyplot as plt
-import gstools as gs
-from pykrige.rk import Krige
-from sklearn.model_selection import GridSearchCV
+import seaborn as sns
+
+# Import normalization library --------
+from functions.llf import llf
+from functions.brent import brent
+from functions.normalize0mean import normalize0mean
+
+# Import kriging library -------------
+from functions.pdist import pdist
 
 # Configure environment ---------------
 # What are your base paths?
@@ -23,10 +27,7 @@ inputs_basepath = '/Users/perrindavidson/Research/whoi/current/globalThPOCModels
 outputs_basepath = '/Users/perrindavidson/Research/whoi/current/globalThPOCModels/outputs/'
 
 # Do you want to download the dataset? (yes or no)
-download_mld = 'no'
-
-# Do you want to CV the variogram? (yes or no)
-cv_variogram = 'yes'
+download_mld = 'yes'
 
 # Download MLD data -------------------
 # Set local filename:
@@ -43,25 +44,19 @@ if download_mld == 'yes':
 
 # Read mld data -----------------------
 # Set reading file:
-file2read = Dataset(
+file2read = nc.Dataset(
     savefilename,
     'r'
 )
 
 # Read data:
-mld = file2read['mld_smth'][:].data
-mlderr = file2read['krig_std_dev'][:].data
+mldfull = file2read['mld_smth'][:].data
+mlderrfull = file2read['krig_std_dev'][:].data
 
 # Read coordinates:
-lon = file2read['lon'][:].data
-lat = file2read['lat'][:].data
-time = file2read['time'][:].data
-
-# Read mask:
-mask = np.array(
-    file2read['mask'][:].data,
-    dtype=bool
-)
+lonmld = file2read['lon'][:].data
+latmld = file2read['lat'][:].data
+timemld = file2read['time'][:].data
 
 # Get fill value:
 fillvaluesample = file2read['mld_smth'].missing_value
@@ -73,277 +68,173 @@ maskvalueeerr = file2read['krig_std_dev'].mask_value
 
 # Read grid data ----------------------
 # Set filename:
-filename = outputs_basepath + 'make2dgrid/modelmask2d.asc'
+filename = outputs_basepath + 'make2dgrid/modelgrid2d.nc'
 
-# Read data:
-maskq, latq, lonq, cellsize, fillvaluequery = kt.read_asc_grid(filename)
+# Set reading file:
+file2read = nc.Dataset(
+    filename,
+    'r'
+)
 
-# Process mld data --------------------
-# Make sample coordinates:
-latgrid, longrid = np.meshgrid(lat, lon)
-latvec = latgrid.flatten()
-lonvec = longrid.flatten()
+# Read coordinates:
+longrid = file2read['lon'][:].data
+latgrid = file2read['lat'][:].data
 
-# Update mask with monthly fill values:
-mld[mld == fillvaluesample] = 0
-mlderr[mlderr == fillvalueerr] = 0
-
-# Remove masked values:
-mld[mld == maskvaluesample] = 0
-mlderr[mlderr == maskvalueeerr] = 0
-
-# Transpose:
-mld = mld.transpose((2, 1, 0))
-mlderr = mlderr.transpose((2, 1, 0))
-
-# Make mask:
-mask = np.array(mld, dtype=bool)
-
-# Replace 0s with nans:
-mld[mld == 0] = np.nan
-
-# Process grid data -------------------
-# Make mask:
-maskq = np.array(
-    maskq,
+# Read mask:
+maskgrid = np.array(
+    file2read['mask'][:].data,
     dtype=bool
 )
 
-# Make grids:
-latqgrid, lonqgrid = np.meshgrid(latq, lonq)
+# Process mld data --------------------
+# Update mask with monthly fill values:
+mldfull[mldfull == fillvaluesample] = 0
+mlderrfull[mlderrfull == fillvalueerr] = 0
 
-# Make vectors:
-lonqvec = lonqgrid.flatten()
-latqvec = latqgrid.flatten()
-maskqvec = maskq.flatten()
+# Remove masked values:
+mldfull[mldfull == maskvaluesample] = 0
+mlderrfull[mlderrfull == maskvalueeerr] = 0
 
-# Mask.
-lonqvec = lonqvec[maskqvec]
-latqvec = latqvec[maskqvec]
+# Make mask:
+maskmldfull = np.array(
+    mldfull,
+    dtype=bool
+)
 
-# Flip to match PyKrige definition:
-maskq = ~maskq
+# Correct mld arrays:
+mldfull[mldfull == 0] = np.nan
+mlderrfull[mlderrfull == 0] = np.nan
 
-# Loop through all times --------------
-# Preallocate arrays:
-mldok = np.empty((len(lonq), len(latq), 12))
-mldvar = np.empty((len(lonq), len(latq), 12))
-mldok[:] = np.nan
-mldvar[:] = np.nan
+# Transpose:
+mldfull = mldfull.transpose((2, 1, 0))
+mlderrfull = mlderrfull.transpose((2, 1, 0))
+maskmldfull = np.transpose(maskmldfull)
 
-# Specify 5-fold CV PyKrige variograms:
-variomod = {'variogram_models': ['power',
-                                 'power',
-                                 'gaussian',
-                                 'linear',
-                                 'gaussian',
-                                 'gaussian',
-                                 'gaussian',
-                                 'power',
-                                 'power',
-                                 'linear',
-                                 'power',
-                                 'linear']
-            }
+# Make coordinate grids:
+latmldgrid, lonmldgrid = np.meshgrid(
+    latmld,
+    lonmld
+)
 
-# Loop:
-for imonth in range(mld.shape[2]):
+# Make coordinate vectors:
+lonmldvec = lonmldgrid.flatten()
+latmldvec = latmldgrid.flatten()
 
-    # Get month data:
-    mldtime = mld[:, :, imonth]
-    masktime = ~mask[:, :, imonth]
+# Loop through months -----------------
+# Get number of months:
+nummonths = len(timemld)
 
-    # Make masked array:
-    mldmasked = np.ma.masked_array(mldtime, masktime)
+# Loop through months:
+for imonth in range(1): #nummonths
+
+    # Data management -----------------
+    # Get month arrays:
+    mld = mldfull[:, :, imonth]
+    mlderr = mlderrfull[:, :, imonth]
+    mldmask = maskmldfull[:, :, imonth]
 
     # Make vectors:
-    mldvectime = mldtime.flatten()
-    maskvectime = masktime.flatten()
+    mldvec = mld.flatten()
+    maskmldvec = mldmask.flatten()
+    mldvec = mldvec[maskmldvec]
+    lonmldvecmonth = lonmldvec[maskmldvec]
+    latmldvecmonth = latmldvec[maskmldvec]
 
-    # Mask:
-    lonvectime = lonvec[~maskvectime]
-    latvectime = latvec[~maskvectime]
-    mldvectime = mldvectime[~maskvectime]
-
-    # Calculate number of lags:
-    numlags = int(np.round(1 + np.log2(len(mldvectime)), 0))
-
-    # Normalize data:
-    mldtimenormraw = gs.normalizer.remove_trend_norm_mean(
-        (lon, lat),
-        mldmasked,
-        normalizer=gs.normalizer.BoxCox(),
-        mesh_type="structured",
-        fit_normalizer=True
-    )
-    mldtimenorm = mldtimenormraw[0]
-    lmbda = mldtimenormraw[1].lmbda
-    mldtimenormvec = mldtimenormraw[0].flatten()
-    mldtimenormvec = mldtimenormvec[~maskvectime]
-
-    # Choose best variogram model:
-    if cv_variogram == 'yes':
-
-        # Set parameters to test:
-        param_dict = {
-            "variogram_model": ["linear",
-                                "exponential",
-                                "gaussian",
-                                "spherical",
-                                "power"],
-            "nlags": [numlags],
-            "weight": [True],
-            "coordinates_type": ["geographic"],
-            "exact_values": [True]
-        }
-
-        # Make estimator:
-        estimator = GridSearchCV(
-            Krige(),
-            param_dict,
-            verbose=True,
-            return_train_score=True
-        )
-
-        # Set coordinate and data arrays:
-        X = np.array([lonvectime, latvectime]).T
-        y = mldtimenormvec
-
-        # Estimate:
-        estimator.fit(X=X, y=y)
-
-        # Specify best model:
-        best_model = estimator.best_params_['variogram_model']
-
-        # Save best model:
-        variomod['variogram_models'][imonth] = best_model
-
-    else:
-
-        best_model = variomod['variogram_models'][imonth]
-
-    # Create PyKrige object:
-    OK = OrdinaryKriging(
-        lonvectime,
-        latvectime,
-        mldtimenormvec,
-        variogram_model=best_model,
-        nlags=numlags,
-        weight=True,
-        verbose=True,
-        enable_plotting=True,
-        coordinates_type="geographic",
-        exact_values=True
-    )
-
-    # PyKrige to masked grid:
-    fieldnorm, k_varnorm = OK.execute(
-        "masked",
-        lonq,
-        latq,
-        maskq,
-        backend="C",
-        n_closest_points=500
-    )
-
-    # De-normalize, retrend, and add back in mean:
-    field = gs.normalizer.apply_mean_norm_trend(
-        (latq, lonq),
-        fieldnorm,
-        normalizer=gs.normalizer.BoxCox(lmbda=lmbda),
-        mesh_type="structured"
-    )
-    k_var = gs.normalizer.apply_mean_norm_trend(
-        (latq, lonq),
-        k_varnorm,
-        normalizer=gs.normalizer.BoxCox(lmbda=lmbda),
-        mesh_type="structured"
-    )
-
-    # Remove out of bounds field data:
-    field[np.transpose(maskq)] = np.nan
-    k_var[np.transpose(maskq)] = np.nan
-
-    # Plot:
-    plt.figure()
-    im = plt.imshow(np.flipud(field))
-    plt.colorbar(
-        im,
-        fraction=0.046,
-        pad=0.04,
-        shrink=0.61,
-        label='Mixed Layer Depths [m]'
-    )
-    plt.title('Month ' + str(imonth + 1))
+    # Normalize data ------------------
+    # Plot distribution (histogram):
+    plt.figure(figsize=(5, 5))
+    sns.histplot(mldvec)
+    plt.xlabel('MLD (m)')
+    plt.ylabel('Count')
+    plt.title('Monthly MLD Distribution')
     plt.show()
     plt.close()
 
-    # Put into array:
-    mldok[:, :, imonth] = np.transpose(field)
-    mldvar[:, :, imonth] = np.transpose(k_var)
+    # Define likelihood function inputs:
+    data = mldvec
+    ax = -3
+    bx = 0
+    cx = 3
+    tol = 1.48E-8
+    n = len(data)
 
-    # Print out time:
-    print('Done kriging MLDs for month', str(imonth + 1))
+    # Minimize function:
+    lmbdahat = brent(
+        data,
+        ax,
+        bx,
+        cx,
+        llf,
+        tol,
+        n
+    )
 
-# Save data ---------------------------
-# Set filename:
-filename = outputs_basepath + 'makemld/mldok.nc'
+    # Normalize and subtract mean:
+    mldvecnormmean, mldmean = normalize0mean(
+        lmbdahat,
+        data,
+        n
+    )
 
-# Open .nc file:
-ncfile = Dataset(
-    filename,
-    mode='w',
-    format='NETCDF4_CLASSIC'
-)
+    # Plot normalized distribution (histogram):
+    plt.figure(figsize=(5, 5))
+    sns.histplot(mldvecnormmean)
+    plt.xlabel('MLD (m)')
+    plt.ylabel('Count')
+    plt.title('Normalized, 0 Mean Monthly MLD Distribution')
+    plt.show()
+    plt.close()
 
-# Set dimensions:
-lon_dim = ncfile.createDimension('lon', len(lonq))
-lat_dim = ncfile.createDimension('lat', len(latq))
-time_dim = ncfile.createDimension('time', len(time))
+    # Bin data ------------------------
+    # Set distances:
+    x = lonmldvecmonth * (np.pi / 180)
+    y = latmldvecmonth * (np.pi / 180)
+    z = mldvecnormmean
+    m = (n * (n - 1)) / 2
 
-# Set title and subtitle:
-ncfile.title = 'THOR Model MLD Data'
-ncfile.subtitle = 'THorium and ORganic carbon flux Model'
+    # Calculate pairwise distances:
+    dist, vals, maxdist, numbins = pdist(
+        x,
+        y,
+        z,
+        m,
+        n
+    )
 
-# Create variables - longitude:
-lonnc = ncfile.createVariable('lon', np.float64, 'lon')
-lonnc.units = 'degrees_east'
-lonnc.long_name = 'longitude'
+    # Make bins:
+    numbins = int(numbins)
+    binedges = np.linspace(0, maxdist, numbins + 1)
+    bins = (binedges[:-1] + binedges[1:]) / 2.0
 
-# Create variables - latitude:
-latnc = ncfile.createVariable('lat', np.float64, 'lat')
-latnc.units = 'degrees_north'
-latnc.long_name = 'latitude'
+    # Estimate variogram --------------
+    # Preallocate semivariance:
+    semivariance = np.empty(numbins)
 
-# Create variables - time:
-timenc = ncfile.createVariable('time', np.float64, 'time')
-timenc.units = 'days since january 1'
-timenc.long_name = 'date_of_year'
+    # Loop through:
+    for i in range(numbins):
 
-# Create variables - mld:
-mldnc = ncfile.createVariable('mld', np.float64, ('lon', 'lat', 'time'))
-mldnc.units = 'meters'
-mldnc.standard_name = 'mixed_layer_depths'
+        # Get this bin's data:
+        zxk = vals[(dist >= binedges[i]) & (dist <= binedges[i + 1]), :]
 
-# Create variables - mld variance:
-mldvarnc = ncfile.createVariable('variance', np.float64, ('lon', 'lat', 'time'))
-mldvarnc.units = 'meters'
-mldvarnc.standard_name = 'mixed_layer_depths_variance'
+        # Calculate number of sample in this bin:
+        h = zxk.shape[0]
 
-# Create variables - mld mask:
-masknc = ncfile.createVariable('mask', np.float64, ('lon', 'lat'))
-masknc.units = 'bool'
-masknc.standard_name = 'land_mask'
+        # Calculate square-rooted distances:
+        lagvalssum = np.sum(np.sqrt(np.abs(zxk[:, 0] - zxk[:, 1])))
 
-# Assign data:
-lonnc[:] = lonq
-latnc[:] = latq
-timenc[:] = time
-mldnc[:, :, :] = mldok
-mldvarnc[:, :, :] = mldvar
-masknc[:, :] = maskq
+        # Calculate Cressie estimator denominator:
+        normcorrect = 0.457 + (0.494 / h) + (0.045 / (h ** 2))
 
-# Close file:
-ncfile.close()
+        # Calculate semivariance for bin:
+        semivariance[i] = (((lagvalssum / h) ** 4) / 2) / normcorrect
 
-# End program -------------------------
+    # Plot experimental variogram:
+    plt.figure(figsize=(5, 5))
+    plt.scatter(bins / 1E3, semivariance)
+    plt.xlabel('Lag ($10^3$ km)')
+    plt.ylabel('(Semi)variance')
+    plt.title('MLD Experimental Variogram')
+    plt.show()
+    plt.close()
+
+# End routine.

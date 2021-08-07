@@ -198,7 +198,7 @@ SUBROUTINE interp2d(x, y, z, xq, yq, zq, nx, ny, nq, fillvalue)
                 sx = 1
 
                 ! Move on:
-                GOTO 10
+                EXIT
 
             ENDIF
 
@@ -215,9 +215,6 @@ SUBROUTINE interp2d(x, y, z, xq, yq, zq, nx, ny, nq, fillvalue)
             sx = 0
 
         ENDIF
-
-        ! Success - let's move on:
-10      CONTINUE
 
         ! Find corresponding sample y values --------------
         ! Note that the index that results from this is that for
@@ -240,7 +237,7 @@ SUBROUTINE interp2d(x, y, z, xq, yq, zq, nx, ny, nq, fillvalue)
                 sy = 1
 
                 ! Move on:
-                GOTO 20
+                EXIT
 
             ENDIF
 
@@ -257,9 +254,6 @@ SUBROUTINE interp2d(x, y, z, xq, yq, zq, nx, ny, nq, fillvalue)
             sy = 0
 
         ENDIF
-
-        ! Success - let's move on:
-20      CONTINUE
 
         ! Perform calculations ----------------------------
         ! Find correspinding sample z values:
