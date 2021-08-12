@@ -99,6 +99,8 @@ PROGRAM CALCVARIOGRAM
     INTEGER :: iter
     INTEGER :: iter_received
     INTEGER :: countbins
+    INTEGER :: loop_procs
+    INTEGER :: work_procs
 
     ! MPI initialization -----------------------------------------------
     ! Now replicate this process to create parallel processes. From this
@@ -112,101 +114,106 @@ PROGRAM CALCVARIOGRAM
     ! Find out how many processes were started:
     CALL MPI_COMM_SIZE(MPI_COMM_WORLD, num_procs, ierr)
 
-    ! Ensure only root processes this data:
-    IF (proc_id .EQ. root_process) THEN
+    ! Print out how many processes started:
+    IF (proc_id .EQ. root_process) PRINT *, 'There were ', num_procs, &
+                                            ' processes started.'
 
-        ! Print out how many processes started:
-        PRINT *, 'There were ', num_procs, ' processes started.'
+    ! Open and Read data -----------------------------------------------
+    ! Set filename:
+    filename = 'inputs/mld1.txt'
 
-        ! Open and Read data -------------------------------------------
-        ! Set filename:
-        filename = 'inputs/mld1.txt'
+    ! Get data dimensions:
+    CALL GETDIMS(filename, rows, columns)
 
-        ! Get data dimensions:
-        CALL GETDIMS(filename, rows, columns)
+    ! Allocate data array:
+    ALLOCATE(data_array(rows, columns))
 
-        ! Allocate data array:
-        ALLOCATE(data_array(rows, columns))
+    ! Open file:
+    OPEN(UNIT=1, FILE=TRIM(filename), STATUS='old', ACTION='read')
 
-        ! Open file:
-        OPEN(UNIT=1, FILE=TRIM(filename), STATUS='old', ACTION='read')
+    ! Read data:
+    DO i = 1, rows, 1
 
-        ! Read data:
-        DO i = 1, rows, 1
+        READ(1, *) data_array(i, :)
 
-            READ(1, *) data_array(i, :)
+    ENDDO
 
-        ENDDO
+    ! Close file:
+    CLOSE(1)
 
-        ! Close file:
-        CLOSE(1)
+    ! Assign data ------------------------------------------------------
+    ! Allocate data:
+    ALLOCATE(mld(rows))
+    ALLOCATE(lon(rows))
+    ALLOCATE(lat(rows))
 
-        ! Assign data --------------------------------------------------
-        ! Allocate data:
-        ALLOCATE(mld(rows))
-        ALLOCATE(lon(rows))
-        ALLOCATE(lat(rows))
+    ! Assign:
+    mld = data_array(:, 1)
+    lon = data_array(:, 2)
+    lat = data_array(:, 3)
 
-        ! Assign:
-        mld = data_array(:, 1)
-        lon = data_array(:, 2)
-        lat = data_array(:, 3)
+    ! Normalize data ---------------------------------------------------
+    ! Allocate:
+    ALLOCATE(mldnorm(rows))
 
-        ! Normalize data -----------------------------------------------
-        ! Allocate:
-        ALLOCATE(mldnorm(rows))
+    ! Set Brent minimization parameters:
+    ax = -3.0
+    bx = 0.0
+    cx = 3.0
+    tol = 1.48E-8
 
-        ! Set Brent minimization parameters:
-        ax = -3.0
-        bx = 0.0
-        cx = 3.0
-        tol = 1.48E-8
+    ! Determine optimal Box-Cox parameter:
+    lambdahat = BRENT(mld, rows, ax, bx, cx, LLF, tol)
 
-        ! Determine optimal Box-Cox parameter:
-        lambdahat = BRENT(mld, rows, ax, bx, cx, LLF, tol)
+    ! Normalize and subtract mean:
+    CALL NORMALIZE0MEAN(lambdahat, mld, rows, mldnorm, mldmean)
 
-        ! Normalize and subtract mean:
-        CALL NORMALIZE0MEAN(lambdahat, mld, rows, mldnorm, mldmean)
+    ! Make bins --------------------------------------------------------
+    ! Calculate dimensions:
+    numdist = (rows * (rows - 1)) / 2
 
-        ! Make bins ----------------------------------------------------
-        ! Calculate dimensions:
-        numdist = (rows * (rows - 1)) / 2
+    ! Allocate:
+    ALLOCATE(lonrad(rows))
+    ALLOCATE(latrad(rows))
+    ALLOCATE(dist(numdist))
+    ALLOCATE(vals(numdist, 2))
 
-        ! Allocate:
-        ALLOCATE(lonrad(rows))
-        ALLOCATE(latrad(rows))
-        ALLOCATE(dist(numdist))
-        ALLOCATE(vals(numdist, 2))
+    ! Calculate coordinates in radians:
+    lonrad = lon * deg2rad
+    latrad = lat * deg2rad
 
-        ! Calculate coordinates in radians:
-        lonrad = lon * deg2rad
-        latrad = lat * deg2rad
+    ! Calculate pairwise distances:
+    CALL PDIST(lonrad, latrad, mldnorm, rows, dist, vals, numdist, &
+               maxdist, numbins)
 
-        ! Calculate pairwise distances:
-        CALL PDIST(lonrad, latrad, mldnorm, rows, dist, vals, numdist, &
-                   maxdist, numbins)
+    ! Redefine max distance:
+    lon1 = 0.0
+    lon2 = 0.0
+    lat1 = 0.0
+    lat2 = 30.0
+    maxdist = GREATCIRCLE(lon1, lat1, lon2, lat2)
 
-        ! Redefine max distance:
-        lon1 = 0.0
-        lon2 = 0.0
-        lat1 = 0.0
-        lat2 = 30.0
-        maxdist = GREATCIRCLE(lon1, lat1, lon2, lat2)
+    ! Allocate more space:
+    ALLOCATE(binedges(INT(numbins) + 1))
+    ALLOCATE(bins(INT(numbins)))
 
-        ! Allocate more space:
-        ALLOCATE(binedges(INT(numbins) + 1))
-        ALLOCATE(bins(INT(numbins)))
+    ! Make the bins:
+    CALL MAKEBINS(INT(numbins), INT(numbins + 1), maxdist, &
+                  binedges, bins)
 
-        ! Make the bins:
-        CALL MAKEBINS(INT(numbins), INT(numbins + 1), maxdist, &
-                      binedges, bins)
-
-    ! End only the root process doing work:
-    ENDIF
+    ! Wait for everyone ------------------------------------------------
+    CALL MPI_BARRIER(MPI_COMM_WORLD, ierr)
 
     ! Calculate experimental variogram ---------------------------------
-    ! Initialize bin counter:
+    ! Initialize ------------------------------------------
+    ! Bin counter:
     countbins = 0
+
+    ! Process counter:
+    loop_procs = num_procs - 1
+
+    ! Counter workers proccesses left:
+    work_procs = INT(numbins) - countbins - 1
 
     ! Count bins:
     DO
@@ -218,8 +225,8 @@ PROGRAM CALCVARIOGRAM
             IF (countbins .EQ. 0) THEN
 
                 ! Allocate space:
-                ALLOCATE(semivariance(INT(6))) ! numbins
-                ALLOCATE(semivariancevar(INT(6))) ! numbins
+                ALLOCATE(semivariance(INT(numbins)))
+                ALLOCATE(semivariancevar(INT(numbins)))
 
                 ! Set counter:
                 iter = 1
@@ -227,29 +234,33 @@ PROGRAM CALCVARIOGRAM
             ENDIF
 
             ! Send data -----------------------------------
-            DO iid = 1, (num_procs - 1), 1
+            IF (work_procs .NE. 0) THEN
 
-                ! Bin data:
-                bin1 = PACK(vals(:, 1), dist .GE. binedges(iter) &
-                            .AND. dist .LE. binedges(iter + 1))
-                bin2 = PACK(vals(:, 2), dist .GE. binedges(iter) &
-                            .AND. dist .LE. binedges(iter + 1))
-                numsend = size(bin1)
+                DO iid = 1, loop_procs, 1
 
-                ! Send to processes:
-                CALL MPI_SEND(iter, 1, MPI_INTEGER, iid, &
-                              data_tag5, MPI_COMM_WORLD, ierr)
-                CALL MPI_SEND(numsend, 1, MPI_INTEGER, iid, &
-                              data_tag0, MPI_COMM_WORLD, ierr)
-                CALL MPI_SEND(bin1, numsend, MPI_DOUBLE_PRECISION, &
-                              iid, data_tag1, MPI_COMM_WORLD, ierr)
-                CALL MPI_SEND(bin2, numsend, MPI_DOUBLE_PRECISION, &
-                              iid, data_tag2, MPI_COMM_WORLD, ierr)
+                    ! Bin data:
+                    bin1 = PACK(vals(:, 1), dist .GE. binedges(iter) &
+                                .AND. dist .LE. binedges(iter + 1))
+                    bin2 = PACK(vals(:, 2), dist .GE. binedges(iter) &
+                                .AND. dist .LE. binedges(iter + 1))
+                    numsend = size(bin1)
 
-                ! Iterate through bins:
-                iter = iter + 1
+                    ! Send to processes:
+                    CALL MPI_SEND(iter, 1, MPI_INTEGER, iid, &
+                                  data_tag5, MPI_COMM_WORLD, ierr)
+                    CALL MPI_SEND(numsend, 1, MPI_INTEGER, iid, &
+                                  data_tag0, MPI_COMM_WORLD, ierr)
+                    CALL MPI_SEND(bin1, numsend, MPI_DOUBLE_PRECISION, &
+                                  iid, data_tag1, MPI_COMM_WORLD, ierr)
+                    CALL MPI_SEND(bin2, numsend, MPI_DOUBLE_PRECISION, &
+                                  iid, data_tag2, MPI_COMM_WORLD, ierr)
 
-            ENDDO
+                    ! Iterate through bins:
+                    iter = iter + 1
+
+                ENDDO
+
+            ENDIF
 
             ! Calculate own data --------------------------
             ! Bin data:
@@ -275,34 +286,38 @@ PROGRAM CALCVARIOGRAM
             iter = iter + 1
 
             ! Recieve calculations ------------------------
-            DO iid = 1, (num_procs - 1), 1
+            IF (work_procs .NE. 0) THEN
 
-                ! Recieve number_input:
-                CALL MPI_RECV(iter_received, 1, MPI_INTEGER, &
-                              MPI_ANY_SOURCE, data_tag6, &
-                              MPI_COMM_WORLD, status, ierr)
-                CALL MPI_RECV(semivar, 1, MPI_DOUBLE_PRECISION, &
-                              MPI_ANY_SOURCE, data_tag3, &
-                              MPI_COMM_WORLD, status, ierr)
-                CALL MPI_RECV(semivarvar, 1, MPI_DOUBLE_PRECISION, &
-                              MPI_ANY_SOURCE, data_tag4, &
-                              MPI_COMM_WORLD, status, ierr)
+                DO iid = 1, loop_procs, 1
 
-                ! Get ID:
-                sender = status(MPI_SOURCE)
+                    ! Recieve number_input:
+                    CALL MPI_RECV(iter_received, 1, MPI_INTEGER, &
+                                  MPI_ANY_SOURCE, data_tag6, &
+                                  MPI_COMM_WORLD, status, ierr)
+                    CALL MPI_RECV(semivar, 1, MPI_DOUBLE_PRECISION, &
+                                  MPI_ANY_SOURCE, data_tag3, &
+                                  MPI_COMM_WORLD, status, ierr)
+                    CALL MPI_RECV(semivarvar, 1, MPI_DOUBLE_PRECISION, &
+                                  MPI_ANY_SOURCE, data_tag4, &
+                                  MPI_COMM_WORLD, status, ierr)
 
-                ! Store data:
-                semivariance(iter_received) = semivar
-                semivariancevar(iter_received) = semivarvar
+                    ! Get ID:
+                    sender = status(MPI_SOURCE)
 
-                ! Print out:
-                PRINT *, 'Process: ', sender, ' done with bin ', &
-                         iter_received, '| Results: ', semivar, &
-                         semivarvar
+                    ! Store data:
+                    semivariance(iter_received) = semivar
+                    semivariancevar(iter_received) = semivarvar
 
-            ENDDO
+                    ! Print out:
+                    PRINT *, 'Process: ', sender, ' done with bin ', &
+                             iter_received, '| Results: ', semivar, &
+                             semivarvar
 
-        ELSE
+                ENDDO
+
+            ENDIF
+
+        ELSEIF (work_procs .NE. 0) THEN
 
             ! Receive data --------------------------------
             ! Get dimension:
@@ -345,29 +360,53 @@ PROGRAM CALCVARIOGRAM
 
         ENDIF
 
-        ! Wait for all to catch up ------------------------
-        CALL MPI_BARRIER(MPI_COMM_WORLD, ierr)
-
+        ! Bookkeeping -------------------------------------
         ! Iterate through:
         countbins = countbins + num_procs
 
+        ! Count workers proccesses left:
+        work_procs = INT(numbins) - countbins - 1
+
+        ! Determine number of processes to allocate:
+        IF (work_procs .LT. loop_procs) THEN
+
+            loop_procs = work_procs
+
+        ENDIF
+
         ! Move on if done:
-        IF (countbins .GE. 6) THEN ! numbins
+        IF (countbins .GE. INT(numbins) .OR. work_procs .LT. 0 &
+            .OR. proc_id .GT. loop_procs) THEN
 
-            IF (proc_id .EQ. 0) THEN
-
-                PRINT*, 'Done with experimental variogram calculations.'
-
-            ENDIF
-
-            GO TO 10
+            EXIT
 
         ENDIF
 
     ENDDO
 
-    ! Continue with the program:
-10  CONTINUE
+    ! Wait for everyone ------------------------------------------------
+    CALL MPI_BARRIER(MPI_COMM_WORLD, ierr)
+
+    ! Write out --------------------------------------------------------
+    IF (proc_id .EQ. 0) THEN
+
+        ! Open:
+        OPEN(2, FILE='outputs/semivariance1.txt', STATUS='unknown')
+        OPEN(3, FILE='outputs/semivariancevar1.txt', STATUS='unknown')
+
+        ! Write:
+        DO i = 1, INT(numbins), 1
+
+            WRITE(2, *) semivariance(i)
+            WRITE(3, *) semivariancevar(i)
+
+        ENDDO
+
+        ! Close:
+        CLOSE(2)
+        CLOSE(3)
+
+    ENDIF
 
     ! Stop program -----------------------------------------------------
     ! Stop all processes doing these calculations:
@@ -1048,7 +1087,7 @@ FUNCTION CALCVAR(bin1, bin2, semivar, n)
     ENDDO
 
     ! Calculate variance:
-    CALCVAR = C / (2 * (n ** 2))
+    CALCVAR = ABS(C / (2 * (n ** 2)))
 
     ! Return value:
     RETURN
